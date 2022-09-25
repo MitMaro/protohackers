@@ -6,7 +6,7 @@ use crossbeam::channel::Receiver;
 use crate::job::Job;
 
 pub(crate) struct Worker {
-	_id: usize,
+	id: usize,
 	thread: Option<JoinHandle<()>>,
 }
 
@@ -17,18 +17,25 @@ impl Worker {
 				capture!(receiver);
 				eprintln!("Worker waiting: {}", id);
 
-				if let Ok(job) = receiver.recv() {
-					eprintln!("Starting job on worker: {}", id);
-					job();
-					eprintln!("Ending job on worker: {}", id);
+				match receiver.recv() {
+					Ok(job) => {
+						eprintln!("Starting job on worker: {}", id);
+						job();
+						eprintln!("Ending job on worker: {}", id);
+					},
+					Err(_) => break,
 				}
 			}
 		});
 
 		Worker {
-			_id: id,
+			id,
 			thread: Some(thread),
 		}
+	}
+
+	pub(crate) fn id(&self) -> usize {
+		self.id
 	}
 
 	pub(crate) fn take(&mut self) -> Option<JoinHandle<()>> {

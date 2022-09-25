@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Error;
 
-pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<(), Error> {
+pub(crate) fn handle(mut stream: TcpStream, _id: u32) -> Result<(), Error> {
 	let mut buffer = [0; 128];
 
 	while let Ok(size) = stream.read(&mut buffer) {

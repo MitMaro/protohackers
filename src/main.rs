@@ -68,9 +68,23 @@ mod smoke_test;
 mod thread_pool;
 mod worker;
 
-use std::{collections::HashMap, env, net::TcpListener, num::NonZeroUsize};
+use std::{
+	collections::HashMap,
+	env,
+	io::ErrorKind,
+	net::TcpListener,
+	num::NonZeroUsize,
+	process,
+	sync::{
+		atomic::{AtomicBool, Ordering},
+		Arc,
+	},
+	thread::sleep,
+	time::Duration,
+};
 
 use anyhow::{anyhow, Error};
+use ctrlc::set_handler;
 use lazy_static::lazy_static;
 use thread_pool::ThreadPool;
 
@@ -88,7 +102,7 @@ lazy_static! {
 fn main() {
 	if let Err(e) = try_main() {
 		eprintln!("{}", e);
-		std::process::exit(1);
+		process::exit(1);
 	}
 }
 
@@ -109,25 +123,47 @@ fn try_main() -> Result<(), Error> {
 
 	let port = env::var("PORT").unwrap_or(String::from("7878"));
 	let number_workers = concurrency_from_environment()?;
-	let address = format!("0.0.0.0:{port}");
-	eprintln!("Starting TCP server on {}", address);
 
-	let listener = TcpListener::bind(address).map_err(Error::from)?;
+	let listener = TcpListener::bind(format!("0.0.0.0:{port}")).map_err(Error::from)?;
+	listener.set_nonblocking(true).expect("Failed to set nonblocking");
+	eprintln!("Ready to accept TCP connections on {}", listener.local_addr()?);
+
 	let pool = ThreadPool::new(number_workers);
-	let mut id = 0;
+	let mut connection_id: u32 = 0;
 
-	for stream in listener.incoming() {
-		id += 1;
-		let stream = stream.unwrap();
-		eprintln!("Steam Started: {}", id);
+	let wait_duration = Duration::from_millis(100);
 
-		pool.execute(move || {
-			if let Err(e) = handler(stream, id) {
-				eprintln!("{}", e);
-			}
-		});
+	let shutdown = Arc::new(AtomicBool::new(false));
+	let shutdown_reader = Arc::clone(&shutdown);
+
+	set_handler(move || {
+		if shutdown.load(Ordering::Acquire) {
+			process::exit(0);
+		}
+		eprintln!("Shutdown requested. CTRL+C to force.");
+		shutdown.store(true, Ordering::Release);
+	})?;
+
+	loop {
+		match listener.accept() {
+			Ok((stream, addr)) => {
+				connection_id = connection_id.wrapping_add(1);
+				eprintln!("({connection_id}) Client connected: {addr}");
+				pool.execute(move || {
+					if let Err(e) = handler(stream, connection_id) {
+						eprintln!("{}", e);
+					}
+				});
+			},
+			Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
+				if shutdown_reader.load(Ordering::Acquire) {
+					break;
+				}
+				sleep(wait_duration);
+			},
+			Err(err) => return Err(Error::from(err)),
+		}
 	}
-
 	Ok(())
 }
 

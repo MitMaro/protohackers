@@ -40,6 +40,7 @@ impl Drop for ThreadPool {
 
 		for worker in &mut self.workers {
 			if let Some(thread) = worker.take() {
+				eprintln!("Waiting for worker {} to stop", worker.id());
 				thread.join().unwrap();
 			}
 		}
