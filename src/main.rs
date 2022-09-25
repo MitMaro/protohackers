@@ -140,7 +140,7 @@ fn select_problem_from_args() -> Problem {
 
 fn concurrency_from_environment() -> Result<NonZeroUsize, Error> {
 	let concurrency = env::var("CONCURRENCY")
-		.unwrap_or(String::from("100"))
+		.unwrap_or(String::from("10"))
 		.parse::<usize>()
 		.map_err(|_e| anyhow!("Environment variable CONCURRENCY must be a positive integer"))?;
 

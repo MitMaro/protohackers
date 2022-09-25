@@ -187,7 +187,7 @@ fn handle_request_data(request: Result<Request>) -> Result<String> {
 	Ok(format!("{{\"method\":\"isPrime\",\"prime\":{}}}\n", prime))
 }
 
-pub(crate) fn handle(mut stream: TcpStream, id: usize) -> Result<()> {
+pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<()> {
 	let mut buffer = [0; 4068];
 	stream.set_read_timeout(Some(Duration::new(5, 0)))?;
 

@@ -1,11 +1,7 @@
-use std::{
-	sync::Arc,
-	thread::{spawn, JoinHandle},
-};
+use std::thread::{spawn, JoinHandle};
 
 use captur::capture;
 use crossbeam::channel::Receiver;
-use parking_lot::Mutex;
 
 use crate::job::Job;
 
@@ -15,17 +11,17 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-	pub(crate) fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
+	pub(crate) fn new(id: usize, receiver: Receiver<Job>) -> Worker {
 		let thread = spawn(move || {
 			loop {
 				capture!(receiver);
+				eprintln!("Worker waiting: {}", id);
 
-				if let Ok(job) = receiver.lock().recv() {
+				if let Ok(job) = receiver.recv() {
 					eprintln!("Starting job on worker: {}", id);
 					job();
 					eprintln!("Ending job on worker: {}", id);
 				}
-				break;
 			}
 		});
 
