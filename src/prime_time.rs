@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use is_prime::is_prime;
+use num::{BigUint, Integer, Zero};
 
 #[derive(Debug, Eq, PartialEq)]
 struct Request {
@@ -19,6 +19,41 @@ struct Request {
 enum ParseState {
 	Key,
 	Value,
+}
+
+fn is_prime(x: u128) -> bool {
+	if x <= 1 {
+		return false;
+	}
+	if x % 2 == 0 {
+		return x == 2;
+	};
+	// check every odd number, up to sqrt(x)
+	for n in (3..).step_by(2).take_while(|m| m * m <= x) {
+		if x % n == 0 {
+			return n == x;
+		};
+	}
+	true
+}
+
+fn is_prime_big_int(x: BigUint) -> bool {
+	// some assumptions can be made here, since small numbers will not be passed to this function
+	if x.mod_floor(&BigUint::from(2u8)).is_zero() {
+		return false;
+	};
+
+	let limit = x.sqrt();
+
+	let mut next = BigUint::from(3u8);
+	while next <= limit {
+		if x.mod_floor(&next).is_zero() {
+			return next == x;
+		};
+
+		next += 2u8;
+	}
+	true
 }
 
 fn skip_whitespace(chars: &mut Peekable<Chars<'_>>) {
@@ -181,17 +216,24 @@ fn handle_request_data(request: Result<Request>) -> Result<String> {
 		"false"
 	}
 	else {
-		if is_prime(r.number.as_str()) { "true" } else { "false" }
+		if let Ok(number) = r.number.parse::<u128>() {
+			if is_prime(number) { "true" } else { "false" }
+		}
+		else {
+			let number = BigUint::parse_bytes(r.number.as_bytes(), 10).unwrap();
+			if is_prime_big_int(number) { "true" } else { "false" }
+		}
 	};
 
-	Ok(format!("{{\"method\":\"isPrime\",\"prime\":{}}}\n", prime))
+	Ok(format!("{{\"method\": \"isPrime\", \"prime\": {}}}\n", prime))
 }
 
-pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<()> {
+pub(crate) fn handle(mut stream: TcpStream, id: usize) -> Result<()> {
 	let mut buffer = [0; 4068];
 	stream.set_read_timeout(Some(Duration::new(5, 0)))?;
 
 	'main: loop {
+		eprintln!("({id}) Reading data");
 		let mut data = String::new();
 		while let Ok(size) = stream.read(&mut buffer) {
 			data.push_str(String::from_utf8_lossy(&buffer[0..size]).as_ref());
@@ -201,7 +243,9 @@ pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<()> {
 			}
 		}
 
-		if data.is_empty() {
+		eprintln!("({id}) Data: '{}' ", data.trim());
+
+		if data.trim().is_empty() {
 			stream.write_all("MALFORMED: Empty".as_bytes())?;
 			break;
 		}
@@ -209,9 +253,11 @@ pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<()> {
 		for line in data.lines() {
 			match handle_request_data(parse_json(line)) {
 				Ok(out) => {
+					eprintln!("({id}) Data: {data} Result: {out}");
 					stream.write_all(out.as_bytes())?;
 				},
 				Err(err) => {
+					eprintln!("({id}) Data: {data} Error: {}", err.to_string());
 					stream.write_all(err.to_string().as_bytes())?;
 					break 'main;
 				},
@@ -220,6 +266,7 @@ pub(crate) fn handle(mut stream: TcpStream, _id: usize) -> Result<()> {
 			stream.flush()?;
 		}
 	}
+	eprintln!("({id}) Shutting down");
 	stream.shutdown(Shutdown::Read)?;
 	Ok(())
 }
@@ -274,5 +321,22 @@ mod tests {
 				number: String::from("123")
 			}
 		);
+	}
+
+	#[test]
+	fn handle_request_big_number() {
+		assert_eq!(
+			handle_request_data(Ok(Request {
+				method: String::from("isPrime"),
+				number: String::from("465664798725654230307600049329275256128334622729792136683073")
+			}))
+			.unwrap(),
+			"{\"method\": \"isPrime\", \"prime\": false}\n"
+		);
+	}
+
+	#[test]
+	fn prime_test() {
+		assert!(is_prime(2));
 	}
 }
