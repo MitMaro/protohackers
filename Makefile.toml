@@ -1,0 +1,71 @@
+[config]
+skip_core_tasks = true
+default_to_workspace = false
+
+[tasks.dev]
+dependencies = [
+	"build",
+	"lint",
+	"format",
+]
+
+[tasks.build]
+dependencies = ["update-rust-nightly"]
+toolchain = "nightly"
+install_crate = false
+command = "cargo"
+args = ["build", "${@}"]
+
+[tasks.build-release]
+dependencies = ["update-rust-stable"]
+toolchain = "stable"
+install_crate = false
+command = "cargo"
+args = ["build", "--release", "${@}"]
+
+[tasks.clean]
+dependencies = ["update-rust-stable"]
+toolchain = "stable"
+install_crate = false
+command = "cargo"
+args = ["clean"]
+
+[tasks.lint]
+dependencies = ["update-rust-nightly"]
+toolchain = "nightly"
+ignore_errors = true
+command = "cargo"
+args = [
+	"clippy",
+	"--all-targets",
+	"--all-features",
+	"${@}"
+]
+
+[tasks.format]
+dependencies = ["update-rust-nightly"]
+toolchain = "nightly"
+command = "cargo"
+args = [
+	"fmt",
+	"--all",
+	"--",
+	"--check",
+	"${@}"
+]
+
+[tasks.format-apply]
+dependencies = ["update-rust-nightly"]
+toolchain = "nightly"
+command = "cargo"
+args = [
+	"fmt",
+	"--all",
+	"--",
+	"--emit", "files",
+	"${@}"
+]
+
+[tasks.update-rust-nightly]
+command = "rustup"
+args = ["update", "nightly"]
