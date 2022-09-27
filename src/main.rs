@@ -63,6 +63,7 @@
 )]
 
 mod job;
+mod means_to_an_end;
 mod prime_time;
 mod smoke_test;
 mod thread_pool;
@@ -93,10 +94,15 @@ enum Problem {
 	None,
 	SmokeTest,
 	PrimeTime,
+	MeansToAnEnd,
 }
+
 lazy_static! {
-	static ref PROBLEMS: [(&'static str, Problem); 2] =
-		[("smoketest", Problem::SmokeTest), ("primetime", Problem::PrimeTime)];
+	static ref PROBLEMS: [(&'static str, Problem); 3] = [
+		("smoketest", Problem::SmokeTest),
+		("primetime", Problem::PrimeTime),
+		("meanstoanend", Problem::MeansToAnEnd)
+	];
 }
 
 fn main() {
@@ -119,6 +125,7 @@ fn try_main() -> Result<(), Error> {
 		},
 		Problem::SmokeTest => smoke_test::handle,
 		Problem::PrimeTime => prime_time::handle,
+		Problem::MeansToAnEnd => means_to_an_end::handle,
 	};
 
 	let port = env::var("PORT").unwrap_or(String::from("7878"));
@@ -170,7 +177,15 @@ fn try_main() -> Result<(), Error> {
 fn select_problem_from_args() -> Problem {
 	let mut problems = HashMap::from(*PROBLEMS);
 	problems
-		.remove(env::args().skip(1).next().unwrap_or(String::from("")).as_str())
+		.remove(
+			env::args()
+				.skip(1)
+				.next()
+				.unwrap_or(String::from(""))
+				.to_lowercase()
+				.replace('_', "")
+				.as_str(),
+		)
 		.unwrap_or(Problem::None)
 }
 
