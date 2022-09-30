@@ -40,8 +40,7 @@
 	unused_lifetimes,
 	unused_macro_rules,
 	unused_qualifications,
-	unused_results,
-	variant_size_differences
+	unused_results
 )]
 // enable all of Clippy's lints
 #![deny(clippy::all, clippy::cargo, clippy::pedantic, clippy::restriction)]
@@ -62,6 +61,8 @@
 	clippy::too_many_lines
 )]
 
+mod budget_chat;
+mod handler;
 mod job;
 mod means_to_an_end;
 mod prime_time;
@@ -80,7 +81,7 @@ use std::{
 		atomic::{AtomicBool, Ordering},
 		Arc,
 	},
-	thread::sleep,
+	thread,
 	time::Duration,
 };
 
@@ -89,19 +90,29 @@ use ctrlc::set_handler;
 use lazy_static::lazy_static;
 use thread_pool::ThreadPool;
 
+use crate::{
+	budget_chat::BudgetChat,
+	handler::Handler,
+	means_to_an_end::MeansToAnEnd,
+	prime_time::PrimeTime,
+	smoke_test::SmokeTest,
+};
+
 #[derive(Debug, Copy, Clone)]
 enum Problem {
 	None,
 	SmokeTest,
 	PrimeTime,
 	MeansToAnEnd,
+	BudgetChat,
 }
 
 lazy_static! {
-	static ref PROBLEMS: [(&'static str, Problem); 3] = [
+	static ref PROBLEMS: [(&'static str, Problem); 4] = [
 		("smoketest", Problem::SmokeTest),
 		("primetime", Problem::PrimeTime),
-		("meanstoanend", Problem::MeansToAnEnd)
+		("meanstoanend", Problem::MeansToAnEnd),
+		("budgetchat", Problem::BudgetChat),
 	];
 }
 
@@ -113,9 +124,7 @@ fn main() {
 }
 
 fn try_main() -> Result<(), Error> {
-	let problem = select_problem_from_args();
-
-	let handler = match problem {
+	let problem: Arc<Box<dyn Handler>> = Arc::new(match select_problem_from_args() {
 		Problem::None => {
 			eprintln!("No problem selected. Available problems: ");
 			for (key, _) in PROBLEMS.iter() {
@@ -123,10 +132,11 @@ fn try_main() -> Result<(), Error> {
 			}
 			return Ok(());
 		},
-		Problem::SmokeTest => smoke_test::handle,
-		Problem::PrimeTime => prime_time::handle,
-		Problem::MeansToAnEnd => means_to_an_end::handle,
-	};
+		Problem::SmokeTest => Box::new(SmokeTest::new()),
+		Problem::PrimeTime => Box::new(PrimeTime::new()),
+		Problem::MeansToAnEnd => Box::new(MeansToAnEnd::new()),
+		Problem::BudgetChat => Box::new(BudgetChat::new()),
+	});
 
 	let port = env::var("PORT").unwrap_or(String::from("7878"));
 	let number_workers = concurrency_from_environment()?;
@@ -156,17 +166,19 @@ fn try_main() -> Result<(), Error> {
 			Ok((stream, addr)) => {
 				connection_id = connection_id.wrapping_add(1);
 				eprintln!("({connection_id}) Client connected: {addr}");
+				let thread_problem = Arc::clone(&problem);
 				pool.execute(move || {
-					if let Err(e) = handler(stream, connection_id) {
+					if let Err(e) = thread_problem.handler(stream, connection_id) {
 						eprintln!("{}", e);
 					}
 				});
 			},
 			Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
 				if shutdown_reader.load(Ordering::Acquire) {
+					problem.shutdown();
 					break;
 				}
-				sleep(wait_duration);
+				thread::sleep(wait_duration);
 			},
 			Err(err) => return Err(Error::from(err)),
 		}

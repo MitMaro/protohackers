@@ -9,6 +9,8 @@ use std::{
 use anyhow::{anyhow, Result};
 use num::{BigUint, Integer, Zero};
 
+use crate::handler::Handler;
+
 #[derive(Debug, Eq, PartialEq)]
 struct Request {
 	method: String,
@@ -228,47 +230,58 @@ fn handle_request_data(request: Result<Request>) -> Result<String> {
 	Ok(format!("{{\"method\": \"isPrime\", \"prime\": {}}}\n", prime))
 }
 
-pub(crate) fn handle(mut stream: TcpStream, id: u32) -> Result<()> {
-	let mut buffer = [0; 4068];
-	stream.set_read_timeout(Some(Duration::new(5, 0)))?;
+#[derive(Debug, Clone)]
+pub(crate) struct PrimeTime {}
 
-	'main: loop {
-		eprintln!("({id}) Reading data");
-		let mut data = String::new();
-		while let Ok(size) = stream.read(&mut buffer) {
-			data.push_str(String::from_utf8_lossy(&buffer[0..size]).as_ref());
+impl PrimeTime {
+	pub(crate) fn new() -> Self {
+		Self {}
+	}
+}
 
-			if size == 0 || data.ends_with('\n') {
+impl Handler for PrimeTime {
+	fn handler(&self, mut stream: TcpStream, id: u32) -> Result<()> {
+		let mut buffer = [0; 4068];
+		stream.set_read_timeout(Some(Duration::new(5, 0)))?;
+
+		'main: loop {
+			eprintln!("({id}) Reading data");
+			let mut data = String::new();
+			while let Ok(size) = stream.read(&mut buffer) {
+				data.push_str(String::from_utf8_lossy(&buffer[0..size]).as_ref());
+
+				if size == 0 || data.ends_with('\n') {
+					break;
+				}
+			}
+
+			eprintln!("({id}) Data: '{}' ", data.trim());
+
+			if data.trim().is_empty() {
+				stream.write_all("MALFORMED: Empty".as_bytes())?;
 				break;
 			}
-		}
 
-		eprintln!("({id}) Data: '{}' ", data.trim());
+			for line in data.lines() {
+				match handle_request_data(parse_json(line)) {
+					Ok(out) => {
+						eprintln!("({id}) Data: {data} Result: {out}");
+						stream.write_all(out.as_bytes())?;
+					},
+					Err(err) => {
+						eprintln!("({id}) Data: {data} Error: {}", err.to_string());
+						stream.write_all(err.to_string().as_bytes())?;
+						break 'main;
+					},
+				}
 
-		if data.trim().is_empty() {
-			stream.write_all("MALFORMED: Empty".as_bytes())?;
-			break;
-		}
-
-		for line in data.lines() {
-			match handle_request_data(parse_json(line)) {
-				Ok(out) => {
-					eprintln!("({id}) Data: {data} Result: {out}");
-					stream.write_all(out.as_bytes())?;
-				},
-				Err(err) => {
-					eprintln!("({id}) Data: {data} Error: {}", err.to_string());
-					stream.write_all(err.to_string().as_bytes())?;
-					break 'main;
-				},
+				stream.flush()?;
 			}
-
-			stream.flush()?;
 		}
+		eprintln!("({id}) Shutting down");
+		stream.shutdown(Shutdown::Read)?;
+		Ok(())
 	}
-	eprintln!("({id}) Shutting down");
-	stream.shutdown(Shutdown::Read)?;
-	Ok(())
 }
 
 #[cfg(test)]
