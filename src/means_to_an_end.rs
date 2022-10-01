@@ -6,10 +6,10 @@ use std::{
 
 use anyhow::{Error, Result};
 
-use crate::handler::Handler;
+use crate::{handler::Handler, utils::data_to_hex};
 
 #[derive(Debug, Clone)]
-pub(crate) struct MeansToAnEnd {}
+pub(crate) struct MeansToAnEnd;
 
 impl MeansToAnEnd {
 	pub(crate) fn new() -> Self {
@@ -18,6 +18,7 @@ impl MeansToAnEnd {
 }
 
 impl Handler for MeansToAnEnd {
+	#[allow(clippy::cast_possible_truncation)]
 	fn handler(&self, mut stream: TcpStream, id: u32) -> Result<()> {
 		stream.set_read_timeout(Some(Duration::from_millis(60000)))?;
 		let mut data_read = false;
@@ -41,7 +42,7 @@ impl Handler for MeansToAnEnd {
 					return Err(Error::from(err));
 				},
 			}
-			eprintln!("({id}) Buffer: '{:x?}' ", buffer);
+			eprintln!("({id}) Buffer: {}", data_to_hex(&buffer));
 
 			let op_type = buffer[0];
 			let first = i32::from_be_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]);
@@ -53,9 +54,9 @@ impl Handler for MeansToAnEnd {
 			else if op_type == b'Q' {
 				let mut average: f64 = 0.0;
 				let mut count = 0;
-				for (time, value) in &values {
+				for &(time, value) in &values {
 					if (first..=second).contains(&time) {
-						average = (count as f64 * average + (*value as f64)) / (count as f64 + 1.0);
+						average = (f64::from(count) * average + (f64::from(value))) / (f64::from(count) + 1.0);
 						count += 1;
 					}
 				}
@@ -73,12 +74,4 @@ impl Handler for MeansToAnEnd {
 		stream.shutdown(Shutdown::Read)?;
 		Ok(())
 	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn tests() {}
 }

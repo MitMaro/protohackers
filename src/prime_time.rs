@@ -39,21 +39,21 @@ fn is_prime(x: u128) -> bool {
 	true
 }
 
-fn is_prime_big_int(x: BigUint) -> bool {
+fn is_prime_big_int(x: &BigUint) -> bool {
 	// some assumptions can be made here, since small numbers will not be passed to this function
-	if x.mod_floor(&BigUint::from(2u8)).is_zero() {
+	if x.mod_floor(&BigUint::from(2_u8)).is_zero() {
 		return false;
 	};
 
 	let limit = x.sqrt();
 
-	let mut next = BigUint::from(3u8);
+	let mut next = BigUint::from(3_u8);
 	while next <= limit {
 		if x.mod_floor(&next).is_zero() {
-			return next == x;
+			return &next == x;
 		};
 
-		next += 2u8;
+		next += 2_u8;
 	}
 	true
 }
@@ -110,10 +110,10 @@ fn read_value(chars: &mut Peekable<Chars<'_>>, is_string: bool) -> Result<String
 			return Ok(value);
 		}
 		else if c == '\\' {
-			escaped = true
+			escaped = true;
 		}
 		else {
-			value.push(c)
+			value.push(c);
 		}
 		let _ = chars.next();
 	}
@@ -125,7 +125,7 @@ fn skip_object_value(chars: &mut Peekable<Chars<'_>>) -> Result<()> {
 
 	while let Some(c) = chars.peek().copied() {
 		if c == '"' {
-			let _ = read_value(chars, true)?;
+			let _v = read_value(chars, true)?;
 			continue;
 		}
 		else if c == '}' {
@@ -217,21 +217,19 @@ fn handle_request_data(request: Result<Request>) -> Result<String> {
 	let prime = if r.number.contains('.') || r.number.contains('-') {
 		"false"
 	}
+	else if let Ok(number) = r.number.parse::<u128>() {
+		if is_prime(number) { "true" } else { "false" }
+	}
 	else {
-		if let Ok(number) = r.number.parse::<u128>() {
-			if is_prime(number) { "true" } else { "false" }
-		}
-		else {
-			let number = BigUint::parse_bytes(r.number.as_bytes(), 10).unwrap();
-			if is_prime_big_int(number) { "true" } else { "false" }
-		}
+		let number = BigUint::parse_bytes(r.number.as_bytes(), 10).unwrap();
+		if is_prime_big_int(&number) { "true" } else { "false" }
 	};
 
 	Ok(format!("{{\"method\": \"isPrime\", \"prime\": {}}}\n", prime))
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PrimeTime {}
+pub(crate) struct PrimeTime;
 
 impl PrimeTime {
 	pub(crate) fn new() -> Self {
@@ -269,7 +267,7 @@ impl Handler for PrimeTime {
 						stream.write_all(out.as_bytes())?;
 					},
 					Err(err) => {
-						eprintln!("({id}) Data: {data} Error: {}", err.to_string());
+						eprintln!("({id}) Data: {data} Error: {}", err);
 						stream.write_all(err.to_string().as_bytes())?;
 						break 'main;
 					},

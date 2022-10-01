@@ -8,7 +8,7 @@ use anyhow::Error;
 use crate::handler::Handler;
 
 #[derive(Debug, Clone)]
-pub(crate) struct SmokeTest {}
+pub(crate) struct SmokeTest;
 
 impl SmokeTest {
 	pub(crate) fn new() -> Self {
@@ -21,13 +21,13 @@ impl Handler for SmokeTest {
 		let mut buffer = [0; 128];
 
 		while let Ok(size) = stream.read(&mut buffer) {
-			let _ = stream.write_all(&buffer[0..size])?;
-			let _ = stream.flush()?;
+			stream.write_all(&buffer[0..size])?;
+			stream.flush()?;
 			if size == 0 {
 				break;
 			}
 		}
-		let _ = stream.shutdown(Shutdown::Read)?;
+		stream.shutdown(Shutdown::Read)?;
 		Ok(())
 	}
 }

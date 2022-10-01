@@ -1,7 +1,12 @@
 [package]
-name = "protohackers"
+name = "mitmaro-protohackers"
 version = "0.1.0"
+authors = ["Tim Oram <dev@mitmaro.ca>"]
 edition = "2021"
+license = "ISC"
+description = "Solutions to the Protohackers challenge written in Rust"
+repository = "https://github.com/MitMaro/protohackers"
+
 
 [dependencies]
 anyhow = "1.0.65"

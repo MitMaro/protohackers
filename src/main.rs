@@ -45,20 +45,30 @@
 // enable all of Clippy's lints
 #![deny(clippy::all, clippy::cargo, clippy::pedantic, clippy::restriction)]
 #![allow(
+	clippy::arithmetic_side_effects,
+	clippy::as_conversions,
 	clippy::blanket_clippy_restriction_lints,
+	clippy::cargo_common_metadata,
 	clippy::default_numeric_fallback,
 	clippy::else_if_without_else,
 	clippy::expect_used,
+	clippy::float_arithmetic,
 	clippy::implicit_return,
+	clippy::indexing_slicing,
 	clippy::integer_arithmetic,
 	clippy::missing_docs_in_private_items,
 	clippy::mod_module_files,
 	clippy::module_name_repetitions,
 	clippy::option_if_let_else,
+	clippy::print_stderr,
 	clippy::pub_use,
 	clippy::redundant_pub_crate,
+	clippy::separated_literal_suffix,
+	clippy::std_instead_of_alloc,
+	clippy::std_instead_of_core,
 	clippy::tabs_in_doc_comments,
-	clippy::too_many_lines
+	clippy::too_many_lines,
+	clippy::unwrap_used
 )]
 
 mod budget_chat;
@@ -68,6 +78,7 @@ mod means_to_an_end;
 mod prime_time;
 mod smoke_test;
 mod thread_pool;
+mod utils;
 mod worker;
 
 use std::{
@@ -116,6 +127,7 @@ lazy_static! {
 	];
 }
 
+#[allow(clippy::exit)]
 fn main() {
 	if let Err(e) = try_main() {
 		eprintln!("{}", e);
@@ -123,11 +135,12 @@ fn main() {
 	}
 }
 
+#[allow(clippy::exit)]
 fn try_main() -> Result<(), Error> {
 	let problem: Arc<Box<dyn Handler>> = Arc::new(match select_problem_from_args() {
 		Problem::None => {
 			eprintln!("No problem selected. Available problems: ");
-			for (key, _) in PROBLEMS.iter() {
+			for &(key, _) in PROBLEMS.iter() {
 				eprintln!("  - {}", key);
 			}
 			return Ok(());
@@ -138,7 +151,7 @@ fn try_main() -> Result<(), Error> {
 		Problem::BudgetChat => Box::new(BudgetChat::new()),
 	});
 
-	let port = env::var("PORT").unwrap_or(String::from("7878"));
+	let port = env::var("PORT").unwrap_or_else(|_| String::from("7878"));
 	let number_workers = concurrency_from_environment()?;
 
 	let listener = TcpListener::bind(format!("0.0.0.0:{port}")).map_err(Error::from)?;
@@ -191,9 +204,8 @@ fn select_problem_from_args() -> Problem {
 	problems
 		.remove(
 			env::args()
-				.skip(1)
-				.next()
-				.unwrap_or(String::from(""))
+				.nth(1)
+				.unwrap_or_default()
 				.to_lowercase()
 				.replace('_', "")
 				.as_str(),
@@ -203,7 +215,7 @@ fn select_problem_from_args() -> Problem {
 
 fn concurrency_from_environment() -> Result<NonZeroUsize, Error> {
 	let concurrency = env::var("CONCURRENCY")
-		.unwrap_or(String::from("10"))
+		.unwrap_or_else(|_| String::from("10"))
 		.parse::<usize>()
 		.map_err(|_e| anyhow!("Environment variable CONCURRENCY must be a positive integer"))?;
 

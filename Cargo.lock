@@ -143,6 +143,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mitmaro-protohackers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "captur",
+ "crossbeam",
+ "ctrlc",
+ "lazy_static",
+ "num",
+ "parking_lot",
+]
+
+[[package]]
 name = "nix"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,19 +270,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-sys",
-]
-
-[[package]]
-name = "protohackers"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "captur",
- "crossbeam",
- "ctrlc",
- "lazy_static",
- "num",
- "parking_lot",
 ]
 
 [[package]]

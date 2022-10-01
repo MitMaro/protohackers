@@ -38,7 +38,7 @@ impl User {
 	}
 
 	fn is_valid_name(name: &str) -> bool {
-		if name.len() < 1 {
+		if name.is_empty() {
 			return false;
 		}
 		for char in name.chars() {
@@ -75,24 +75,24 @@ impl BudgetChat {
 		let user_id = self.next_id();
 		let user = User::new(name);
 		let mut users = self.users.lock();
-		let _ = (*users).insert(user_id, user);
+		let _prev = (*users).insert(user_id, user);
 		drop(users);
-		self.broadcast(Message::Join(user_id));
+		self.broadcast(&Message::Join(user_id));
 		user_id
 	}
 
 	fn remove_user(&self, user_id: usize) {
 		let name = self.name(user_id);
-		self.broadcast(Message::Leave(user_id, name));
+		self.broadcast(&Message::Leave(user_id, name));
 		let mut users = self.users.lock();
 
-		let _ = (*users).remove(&user_id);
+		let _prev = (*users).remove(&user_id);
 	}
 
 	fn name(&self, user_id: usize) -> String {
 		let users = self.users.lock();
 
-		(*users).get(&user_id).unwrap().name.clone()
+		(*users)[&user_id].name.clone()
 	}
 
 	fn room_list(&self) -> String {
@@ -105,11 +105,11 @@ impl BudgetChat {
 			.join(", ")
 	}
 
-	fn broadcast(&self, message: Message) {
+	fn broadcast(&self, message: &Message) {
 		let users = self.users.lock();
 
 		for user in (*users).values() {
-			let _ = user.sender.send(message.clone());
+			user.sender.send(message.clone()).unwrap();
 		}
 	}
 
@@ -129,7 +129,7 @@ impl BudgetChat {
 		user_id: usize,
 	) -> ScopedJoinHandle<'scope, ()> {
 		let users = self.users.lock();
-		let receiver = (*users).get(&user_id).unwrap().receiver.clone();
+		let receiver = (*users)[&user_id].receiver.clone();
 		drop(users);
 		scope.spawn(move || {
 			'main: loop {
@@ -150,21 +150,17 @@ impl BudgetChat {
 							if left_user_id == user_id {
 								break 'main;
 							}
-							else {
-								eprintln!("({id}) ({user_id}) Left: {name}");
-								stream
-									.write_all(format!("* {} has left the room\n", name).as_bytes())
-									.unwrap();
-							}
+							eprintln!("({id}) ({user_id}) Left: {name}");
+							stream
+								.write_all(format!("* {} has left the room\n", name).as_bytes())
+								.unwrap();
 						},
-						Message::Message(from_user_id, message) => {
+						Message::Message(from_user_id, msg) => {
 							if from_user_id != user_id {
 								let from_name = self.name(from_user_id);
 								let name = self.name(user_id);
-								eprintln!("({id}) ({from_name}) --> ({name}) Sending: {message}");
-								stream
-									.write_all(format!("[{from_name}] {message}\n").as_bytes())
-									.unwrap();
+								eprintln!("({id}) ({from_name}) --> ({name}) Sending: {msg}");
+								stream.write_all(format!("[{from_name}] {msg}\n").as_bytes()).unwrap();
 							}
 						},
 						Message::Shutdown => break 'main,
@@ -223,13 +219,13 @@ impl Handler for BudgetChat {
 						message_thread_handle =
 							Some(
 								self.clone()
-									.start_message_thread(&s, id, recv_steam.try_clone().unwrap(), user_id),
+									.start_message_thread(s, id, recv_steam.try_clone().unwrap(), user_id),
 							);
 						continue;
 					}
 					if !message.starts_with('*') {
 						eprintln!("({id}) ({user_id}) Sending: {message}");
-						self.broadcast(Message::Message(user_id, message));
+						self.broadcast(&Message::Message(user_id, message));
 					}
 				}
 			}
@@ -237,7 +233,7 @@ impl Handler for BudgetChat {
 			if user_id != 0 {
 				let name = self.name(user_id);
 				eprintln!("({id}) Disconnected: {name} ({user_id})");
-				self.remove_user(user_id)
+				self.remove_user(user_id);
 			}
 
 			if let Some(handle) = message_thread_handle {
@@ -246,7 +242,7 @@ impl Handler for BudgetChat {
 		});
 
 		eprintln!("({id}) Shutdown");
-		let _ = stream.shutdown(Shutdown::Read)?;
+		stream.shutdown(Shutdown::Read)?;
 
 		Ok(())
 	}
@@ -255,7 +251,7 @@ impl Handler for BudgetChat {
 		let users = self.users.lock();
 
 		for user in (*users).values() {
-			let _ = user.sender.send(Message::Shutdown);
+			user.sender.send(Message::Shutdown).unwrap();
 		}
 	}
 }
