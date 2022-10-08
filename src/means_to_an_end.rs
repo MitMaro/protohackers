@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Error, Result};
 
-use crate::{handler::Handler, utils::data_to_hex};
+use crate::{handler::TcpHandler, utils::data_to_hex};
 
 #[derive(Debug, Clone)]
 pub(crate) struct MeansToAnEnd;
@@ -17,7 +17,7 @@ impl MeansToAnEnd {
 	}
 }
 
-impl Handler for MeansToAnEnd {
+impl TcpHandler for MeansToAnEnd {
 	#[allow(clippy::cast_possible_truncation)]
 	fn handler(&self, mut stream: TcpStream, id: u32) -> Result<()> {
 		stream.set_read_timeout(Some(Duration::from_millis(60000)))?;

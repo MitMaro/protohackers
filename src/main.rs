@@ -78,6 +78,7 @@ mod means_to_an_end;
 mod prime_time;
 mod smoke_test;
 mod thread_pool;
+mod unusual_database_program;
 mod utils;
 mod worker;
 
@@ -85,7 +86,7 @@ use std::{
 	collections::HashMap,
 	env,
 	io::ErrorKind,
-	net::TcpListener,
+	net::{TcpListener, UdpSocket},
 	num::NonZeroUsize,
 	process,
 	sync::{
@@ -103,14 +104,16 @@ use thread_pool::ThreadPool;
 
 use crate::{
 	budget_chat::BudgetChat,
-	handler::Handler,
+	handler::{TcpHandler, UdpHandler},
 	means_to_an_end::MeansToAnEnd,
 	prime_time::PrimeTime,
 	smoke_test::SmokeTest,
+	unusual_database_program::UnusualDatabaseProgram,
+	utils::data_to_hex,
 };
 
 #[derive(Debug, Copy, Clone)]
-enum Problem {
+enum TcpProblem {
 	None,
 	SmokeTest,
 	PrimeTime,
@@ -118,13 +121,28 @@ enum Problem {
 	BudgetChat,
 }
 
+#[derive(Debug, Copy, Clone)]
+enum UdpProblem {
+	None,
+	UnusualDatabaseProgram,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum Type {
+	None,
+	Tcp,
+	Udp,
+}
+
 lazy_static! {
-	static ref PROBLEMS: [(&'static str, Problem); 4] = [
-		("smoketest", Problem::SmokeTest),
-		("primetime", Problem::PrimeTime),
-		("meanstoanend", Problem::MeansToAnEnd),
-		("budgetchat", Problem::BudgetChat),
+	static ref TCP_PROBLEMS: [(&'static str, TcpProblem); 4] = [
+		("smoketest", TcpProblem::SmokeTest),
+		("primetime", TcpProblem::PrimeTime),
+		("meanstoanend", TcpProblem::MeansToAnEnd),
+		("budgetchat", TcpProblem::BudgetChat),
 	];
+	static ref UDP_PROBLEMS: [(&'static str, UdpProblem); 1] =
+		[("unusualdatabaseprogram", UdpProblem::UnusualDatabaseProgram)];
 }
 
 #[allow(clippy::exit)]
@@ -137,21 +155,87 @@ fn main() {
 
 #[allow(clippy::exit)]
 fn try_main() -> Result<(), Error> {
-	let problem: Arc<Box<dyn Handler>> = Arc::new(match select_problem_from_args() {
-		Problem::None => {
+	let port = env::var("PORT").unwrap_or_else(|_| String::from("7878"));
+	let shutdown = Arc::new(AtomicBool::new(false));
+	let handler_shutdown = Arc::clone(&shutdown);
+
+	set_handler(move || {
+		if shutdown.load(Ordering::Acquire) {
+			process::exit(0);
+		}
+		eprintln!("Shutdown requested. CTRL+C to force.");
+		shutdown.store(true, Ordering::Release);
+	})?;
+
+	match select_socket_type_from_args() {
+		Type::Tcp => try_tcp_main(port.as_str(), &handler_shutdown),
+		Type::Udp => try_udp_main(port.as_str(), &handler_shutdown),
+		Type::None => {
+			eprintln!("No socket type selected. Available problems: tcp, udp");
+			Ok(())
+		},
+	}
+}
+
+fn try_udp_main(port: &str, shutdown_flag: &Arc<AtomicBool>) -> Result<(), Error> {
+	let problem: Arc<Box<dyn UdpHandler>> = Arc::new(match select_udp_problem_from_args() {
+		UdpProblem::None => {
 			eprintln!("No problem selected. Available problems: ");
-			for &(key, _) in PROBLEMS.iter() {
+			for &(key, _) in UDP_PROBLEMS.iter() {
 				eprintln!("  - {}", key);
 			}
 			return Ok(());
 		},
-		Problem::SmokeTest => Box::new(SmokeTest::new()),
-		Problem::PrimeTime => Box::new(PrimeTime::new()),
-		Problem::MeansToAnEnd => Box::new(MeansToAnEnd::new()),
-		Problem::BudgetChat => Box::new(BudgetChat::new()),
+		UdpProblem::UnusualDatabaseProgram => Box::new(UnusualDatabaseProgram::new()),
 	});
 
-	let port = env::var("PORT").unwrap_or_else(|_| String::from("7878"));
+	let socket = UdpSocket::bind(format!("0.0.0.0:{port}")).map_err(Error::from)?;
+	socket.set_nonblocking(true).expect("Failed to set nonblocking");
+	eprintln!("Ready to accept UDP messages on {}", socket.local_addr()?);
+
+	let wait_duration = Duration::from_millis(100);
+
+	let mut handler_socket = socket.try_clone()?;
+
+	loop {
+		let mut buffer = [0; 1024];
+		match socket.recv_from(&mut buffer) {
+			Ok((size, addr)) => {
+				let data = &buffer[0..size];
+				eprintln!("({addr}) Data: '{}' ", data_to_hex(data));
+
+				if let Err(e) = problem.handler(data, &mut handler_socket, addr) {
+					eprintln!("{}", e);
+				}
+			},
+			Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
+				if shutdown_flag.load(Ordering::Acquire) {
+					problem.shutdown();
+					break;
+				}
+				thread::sleep(wait_duration);
+			},
+			Err(err) => return Err(Error::from(err)),
+		}
+	}
+	Ok(())
+}
+
+fn try_tcp_main(port: &str, shutdown_flag: &Arc<AtomicBool>) -> Result<(), Error> {
+	let problem: Arc<Box<dyn TcpHandler>> = Arc::new(match select_tcp_problem_from_args() {
+		TcpProblem::None => {
+			eprintln!("No problem selected. Available problems: ");
+			for &(key, _) in TCP_PROBLEMS.iter() {
+				eprintln!("  - {}", key);
+			}
+			return Ok(());
+		},
+		TcpProblem::SmokeTest => Box::new(SmokeTest::new()),
+		TcpProblem::PrimeTime => Box::new(PrimeTime::new()),
+		TcpProblem::MeansToAnEnd => Box::new(MeansToAnEnd::new()),
+		TcpProblem::BudgetChat => Box::new(BudgetChat::new()),
+	});
+
 	let number_workers = concurrency_from_environment()?;
 
 	let listener = TcpListener::bind(format!("0.0.0.0:{port}")).map_err(Error::from)?;
@@ -162,17 +246,6 @@ fn try_main() -> Result<(), Error> {
 	let mut connection_id: u32 = 0;
 
 	let wait_duration = Duration::from_millis(100);
-
-	let shutdown = Arc::new(AtomicBool::new(false));
-	let shutdown_reader = Arc::clone(&shutdown);
-
-	set_handler(move || {
-		if shutdown.load(Ordering::Acquire) {
-			process::exit(0);
-		}
-		eprintln!("Shutdown requested. CTRL+C to force.");
-		shutdown.store(true, Ordering::Release);
-	})?;
 
 	loop {
 		match listener.accept() {
@@ -187,7 +260,7 @@ fn try_main() -> Result<(), Error> {
 				});
 			},
 			Err(ref err) if err.kind() == ErrorKind::WouldBlock => {
-				if shutdown_reader.load(Ordering::Acquire) {
+				if shutdown_flag.load(Ordering::Acquire) {
 					problem.shutdown();
 					break;
 				}
@@ -199,18 +272,35 @@ fn try_main() -> Result<(), Error> {
 	Ok(())
 }
 
-fn select_problem_from_args() -> Problem {
-	let mut problems = HashMap::from(*PROBLEMS);
+fn select_socket_type_from_args() -> Type {
+	let socket_type = env::args().nth(1).unwrap_or_default().to_lowercase();
+
+	match socket_type.as_str() {
+		"tcp" => Type::Tcp,
+		"udp" => Type::Udp,
+		_ => Type::None,
+	}
+}
+
+fn select_udp_problem_from_args() -> UdpProblem {
+	let mut problems = HashMap::from(*UDP_PROBLEMS);
+	problems
+		.remove(env::args().nth(2).unwrap_or_default().to_lowercase().as_str())
+		.unwrap_or(UdpProblem::None)
+}
+
+fn select_tcp_problem_from_args() -> TcpProblem {
+	let mut problems = HashMap::from(*TCP_PROBLEMS);
 	problems
 		.remove(
 			env::args()
-				.nth(1)
+				.nth(2)
 				.unwrap_or_default()
 				.to_lowercase()
 				.replace('_', "")
 				.as_str(),
 		)
-		.unwrap_or(Problem::None)
+		.unwrap_or(TcpProblem::None)
 }
 
 fn concurrency_from_environment() -> Result<NonZeroUsize, Error> {

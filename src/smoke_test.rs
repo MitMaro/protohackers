@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Error;
 
-use crate::handler::Handler;
+use crate::handler::TcpHandler;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SmokeTest;
@@ -16,7 +16,7 @@ impl SmokeTest {
 	}
 }
 
-impl Handler for SmokeTest {
+impl TcpHandler for SmokeTest {
 	fn handler(&self, mut stream: TcpStream, _id: u32) -> Result<(), Error> {
 		let mut buffer = [0; 128];
 

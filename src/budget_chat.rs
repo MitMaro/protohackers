@@ -10,7 +10,7 @@ use anyhow::Error;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use parking_lot::Mutex;
 
-use crate::handler::Handler;
+use crate::handler::TcpHandler;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum Message {
@@ -171,7 +171,7 @@ impl BudgetChat {
 	}
 }
 
-impl Handler for BudgetChat {
+impl TcpHandler for BudgetChat {
 	fn handler(&self, mut stream: TcpStream, id: u32) -> Result<(), Error> {
 		stream.write_all("Welcome to budgetchat! What shall I call you?\n".as_bytes())?;
 

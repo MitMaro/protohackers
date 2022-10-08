@@ -9,7 +9,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use num::{BigUint, Integer, Zero};
 
-use crate::handler::Handler;
+use crate::handler::TcpHandler;
 
 #[derive(Debug, Eq, PartialEq)]
 struct Request {
@@ -237,7 +237,7 @@ impl PrimeTime {
 	}
 }
 
-impl Handler for PrimeTime {
+impl TcpHandler for PrimeTime {
 	fn handler(&self, mut stream: TcpStream, id: u32) -> Result<()> {
 		let mut buffer = [0; 4068];
 		stream.set_read_timeout(Some(Duration::new(5, 0)))?;
